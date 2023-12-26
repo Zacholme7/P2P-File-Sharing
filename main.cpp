@@ -16,14 +16,14 @@ Logger logger(LogLevel::Debug);
 int main(int argc, char* argv[]) {
         // parse the command line arguments
         if (argc < 3) {
-                logger.log("Invalid arguments: please run in the form of p2papp {port} {sharedDirectory}", LogLevel::Error);
+                logger.log("Invalid arguments: please run in the form of p2papp {port} {peer name}", LogLevel::Error);
                 return 1;
         }
         int port = std::stoi(argv[1]); // port that we want to the server to use
-        std::string sharedDir = argv[2];
+        std::string peerName = std::string(argv[2]);
 
         // construct the peer
-        Peer myPeer(port, sharedDir);
+        Peer myPeer(peerName);
 
         // start the server in a new thread
         std::thread serverThread(&Peer::startServer, &myPeer, port);
@@ -41,7 +41,6 @@ int main(int argc, char* argv[]) {
         }
 
         serverThread.join();
-
         //myPeer.shutdown();
 }
 
