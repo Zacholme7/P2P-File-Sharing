@@ -1,5 +1,6 @@
 #include "peer.h"
 #include "logger.h"
+#include "util.h"
 #include <sys/socket.h>
 #include <thread>
 #include <netinet/in.h>
@@ -28,6 +29,21 @@ namespace peer {
                 }
         };
 
+        std::unordered_map<std::string, int> exchangePeerMap(int serverFd, int recvFd, std::unordered_map<std::string, int> connectedPeers) {
+                // recieve the peer map from the client
+                char buffer[1024] = {0};
+                int valread = read(serverFd, buffer, 1024);
+                std::string serializedMap(buffer, valread);
+                auto peerMap = deserializeMap(serializedMap);
+
+                // send the servers peer map
+                std::string connectedPeersSerialized = serializeMap(connectedPeers);
+                send(recvFd, connectedPeersSerialized.c_str(), connectedPeersSerialized.size(), 0);
+
+                return peerMap;
+        }
+
+
         void Peer::startServer(int port) {
                 serverSocket = socket(AF_INET, SOCK_STREAM, 0);
                 if (serverSocket == -1) {
@@ -48,6 +64,12 @@ namespace peer {
                 listen(serverSocket, 10);
                 logger.log("Server sucessfully created", LogLevel::Debug);
 
+                // register the server with itself
+                {
+                        std::lock_guard<std::mutex> lock(mutex);
+                        connectedPeers[this->name] = serverSocket;
+                }
+
                 int addrlen = sizeof(sockaddr);
                 while(true) {
                         int clientSockfd = accept(serverSocket, (struct sockaddr*)&sockaddr, (socklen_t*)&addrlen);
@@ -57,10 +79,21 @@ namespace peer {
                         }
 
 
+                        // exchange peer maps with the client
+                        auto newPeerMap = exchangePeerMap(serverSocket, clientSockfd, connectedPeers);
+
+                        // process the new peer map, connect to any peers that we are not currently connected to
+                        processPeerMap(newPeerMap);
+
+                        // listen to the new client
+                        std::thread clientThread(&Peer::listenToClient, this, clientSockfd);
+                        clientThreads.push_back(std::move(clientThread));
+
+                        /*
                         // send the connected client the server name 
                         send(clientSockfd, this->name.c_str(), this->name.length(), 0);
 
-                        // Receive the client's name
+                        // recieve the clients peerList
                         char buffer[1024];
                         int bytesRead = recv(clientSockfd, buffer, sizeof(buffer) - 1, 0);
                         if (bytesRead > 0) {
@@ -72,11 +105,12 @@ namespace peer {
                                 connectedPeers[clientName] = clientSockfd;
                                 logger.log(this->name + " registered connection from " + clientName, LogLevel::Info);
                         }
+                        */
 
-                        std::thread clientThread(&Peer::listenToClient, this, clientSockfd);
-                        clientThreads.push_back(std::move(clientThread));
                 }
         }
+
+
 
         void Peer::connectToPeer(int port, const std::string &ip) {
                 int sock = socket(AF_INET, SOCK_STREAM, 0);
