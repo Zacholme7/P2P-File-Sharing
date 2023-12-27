@@ -4,87 +4,140 @@
 #include <thread>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <cstdlib>
 #include <string>
 #include <iostream>
 #include <unistd.h>
-
 
 extern Logger logger;
 
 namespace peer {
         Peer::Peer(std::string&name )
-                : name(name) {};
+                : name(name), serverSocket(-1) {};
 
-        Peer::~Peer() {};
+        Peer::~Peer() {
+                for (auto& thread: clientThreads) {
+                        if (thread.joinable()) {
+                                thread.join();
+                        }
+                }
+                if (serverSocket != -1) {
+                        close(serverSocket);
+                }
+                for (auto& pair : connectedPeers) {
+                        close(pair.second);
+                }
+        };
 
-        // Starts up the server portion of the peer
-        // Will accept connections from other peers
         void Peer::startServer(int port) {
-                logger.log("Creating the server...", LogLevel::Debug);
-                // create the socket (IPv4, TCP)
-                int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-                if (sockfd == -1) {
+                serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+                if (serverSocket == -1) {
                         logger.log("Failed to create the server", LogLevel::Error);
-                        exit(EXIT_FAILURE);
+                        return;
                 }
 
-                // Listen to the passed port on any address
-                sockaddr_in sockaddr;
+                sockaddr_in sockaddr{};
                 sockaddr.sin_family = AF_INET;
                 sockaddr.sin_addr.s_addr = INADDR_ANY;
                 sockaddr.sin_port = htons(port);
 
-                // bind the file descriptor to the address
-                logger.log("Binding the server...", LogLevel::Debug);
-                if (bind(sockfd, (struct sockaddr*)&sockaddr, sizeof(sockaddr)) < 0) {
+                if (bind(serverSocket, (struct sockaddr*)&sockaddr, sizeof(sockaddr)) < 0) {
                         logger.log("Failed to bind to the port " + std::to_string(port), LogLevel::Error);
-                        exit(EXIT_FAILURE);
+                        return;
                 }
 
-                listen(sockfd, 10);
-
-                logger.log("Server successfully created", LogLevel::Debug);
+                listen(serverSocket, 10);
+                logger.log("Server sucessfully created", LogLevel::Debug);
 
                 int addrlen = sizeof(sockaddr);
                 while(true) {
-                        logger.log("Listening for new connections...", LogLevel::Debug);
+                        int clientSockfd = accept(serverSocket, (struct sockaddr*)&sockaddr, (socklen_t*)&addrlen);
+                        if (clientSockfd < 0) {
+                                logger.log("Failed to accept connection", LogLevel::Error);
+                                continue;
+                        }
 
-                        // accept a new connection
-                        int clientSockfd = accept(sockfd, (struct sockaddr*)&sockaddr, (socklen_t*)&addrlen);
 
-                        // send the peers name to the new client
+                        // send the connected client the server name 
                         send(clientSockfd, this->name.c_str(), this->name.length(), 0);
 
-                        logger.log("Got a new connection!", LogLevel::Debug);
+                        // Receive the client's name
+                        char buffer[1024];
+                        int bytesRead = recv(clientSockfd, buffer, sizeof(buffer) - 1, 0);
+                        if (bytesRead > 0) {
+                                buffer[bytesRead] = '\0';
+                                std::string clientName(buffer);
+
+                                // Register the connection with the server
+                                std::lock_guard<std::mutex> lock(mutex);
+                                connectedPeers[clientName] = clientSockfd;
+                                logger.log(this->name + " registered connection from " + clientName, LogLevel::Info);
+                        }
 
                         std::thread clientThread(&Peer::listenToClient, this, clientSockfd);
-                        clientThread.detach();
-
-
-
-                        //logger.log("Closing the new connection", LogLevel::Debug);
-                        //close(clientSockfd);
+                        clientThreads.push_back(std::move(clientThread));
                 }
         }
 
-        void Peer::sendMessage(int serverFd, std::string& message) {
-                send(serverFd, message.c_str(), message.size(), 0);
+        void Peer::connectToPeer(int port, const std::string &ip) {
+                int sock = socket(AF_INET, SOCK_STREAM, 0);
+                if (sock < 0) {
+                        logger.log("Failed to create socket", LogLevel::Error);
+                        return;
+                }
+
+                sockaddr_in sockaddr{};
+                sockaddr.sin_family = AF_INET;
+                sockaddr.sin_port = htons(port);
+                inet_pton(AF_INET, ip.c_str(), &sockaddr.sin_addr);
+
+                if (connect(sock, (struct sockaddr *)&sockaddr, sizeof(sockaddr)) < 0) {
+                        logger.log("Unable to connect to the server", LogLevel::Error);
+                        close(sock);
+                        return;
+                }
+
+                send(sock, this->name.c_str(), this->name.length(), 0);
+                
+                // record the connected peer for future communcation
+                char buffer[1024];
+                int bytesRead = recv(sock, buffer, sizeof(buffer) - 1, 0);
+                if (bytesRead > 0) {
+                        buffer[bytesRead] = '\0';
+                        std::string serverName(buffer);
+                        {
+                                std::lock_guard<std::mutex> lock(mutex);
+                                connectedPeers[serverName] = sock;
+                                std::thread clientThread(&Peer::listenToClient, this, sock);
+                                clientThreads.push_back(std::move(clientThread));
+                        }
+                        logger.log("Connected to server: " + serverName, LogLevel::Info);
+                } else {
+                        logger.log("Failed to recieve server name", LogLevel::Error);
+                        close(sock);
+                }
+        }
+
+        void Peer::sendMessage(const std::string &serverName, const std::string &message) {
+                std::lock_guard<std::mutex> lock(mutex);
+                auto it = connectedPeers.find(serverName);
+                if (it != connectedPeers.end()) {
+                        send(it->second, message.c_str(), message.size(), 0);
+                } else {
+                        logger.log("Server not found: " + serverName, LogLevel::Error);
+                }
         }
 
         void Peer::listenToClient(int clientSocket) {
                 char buffer[1024];
-
                 while (true) {
                         int bytesRead = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
                         if (bytesRead <= 0) {
-                                // Client disconnected or error occurred
                                 break;
                         }
                         buffer[bytesRead] = '\0'; // Null-terminate the received data
                         logger.log("Received message: " + std::string(buffer), LogLevel::Info);
-                        // Process message...
                 }
+                close(clientSocket);
         }
 
         // Processes commands from the cli
@@ -112,39 +165,8 @@ namespace peer {
                         std::cout << "What is the name of the server you would like to send a message to: ";
                         std::getline(std::cin, serverName);
 
-                        sendMessage(connectedPeers[serverName], message);
+                        sendMessage(serverName, message);
                 }
         }
 
-        // connects to another peer
-        // peer acts as a client here
-        void Peer::connectToPeer(int port, std::string &ip) {
-                logger.log("Connecting to a server...", LogLevel::Debug);
-
-                int sock = socket(AF_INET, SOCK_STREAM, 0);
-
-                // define the server address
-                sockaddr_in sockaddr;
-                sockaddr.sin_family = AF_INET;
-                sockaddr.sin_port = htons(port);
-                inet_pton(AF_INET, ip.c_str(), &sockaddr.sin_addr);
-
-                // connect to the peers server
-                if (connect(sock, (struct sockaddr *)&sockaddr, sizeof(sockaddr)) < 0) {
-                        logger.log("Unable to connect to the server", LogLevel::Error);
-                        exit(EXIT_FAILURE);
-                }
-                
-                // record the connected peer for future communcation
-                char buffer[1024];
-                int bytesRead = recv(sock, buffer, sizeof(buffer) - 1, 0);
-                if (bytesRead > 0) {
-                        buffer[bytesRead] = '\0';
-                        std::string serverName(buffer);
-                        connectedPeers[serverName] = sock;
-                        logger.log("Connected to server: " + serverName, LogLevel::Info);
-                } else {
-                        logger.log("Failed to recieve server name", LogLevel::Error);
-                }
-        }
 }
