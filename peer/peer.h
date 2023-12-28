@@ -17,13 +17,15 @@ namespace peer {
                 void processCommand(std::string& command);
 
         private:
-                void connectToPeer(int port, const std::string &ip);
+                void connectToPeerServer(int port, const std::string &ip, std::string &peerServerName);
                 void sendMessage(const std::string &serverName, const std::string &message);
                 void listenToClient(int clientSocket);
+                void listenToServer();
 
                 std::string name;
                 int serverSocket;
-                std::unordered_map<std::string, int> connectedPeers;
+                // 
+                std::unordered_map<std::string, int> connectedServers;
                 std::vector<std::thread> clientThreads;
                 std::mutex mutex;
         };

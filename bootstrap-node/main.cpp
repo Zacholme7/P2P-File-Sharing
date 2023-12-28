@@ -1,3 +1,4 @@
+#include "bootstrapNode.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -16,8 +17,9 @@ std::string serializeMap(const std::unordered_map<std::string, int> &map) {
 }
 
 int main() {
-        int centralNodeSocket = socket(AF_INET, SOCK_STREAM, 0);
-        if (centralNodeSocket == -1) {
+        BootstrapNode bootstrapNode;
+        int bootstrapNodeSocket = socket(AF_INET, SOCK_STREAM, 0);
+        if (bootstrapNodeSocket == -1) {
                 std::cerr << "Failed to create the server" << std::endl;
                 return 1;
         }
@@ -29,25 +31,43 @@ int main() {
         sockaddr.sin_port = htons(50000);
 
         // bind the socket
-        if (bind(centralNodeSocket, (struct sockaddr*)&sockaddr, sizeof(sockaddr)) < 0) {
+        if (bind(bootstrapNodeSocket, (struct sockaddr*)&sockaddr, sizeof(sockaddr)) < 0) {
                 std::cerr << "Failed to bind to the port 50000" << std::endl;
                 return 1;
         }
 
         // listen on the socket
-        listen(centralNodeSocket, 10);
+        listen(bootstrapNodeSocket, 10);
 
         // continuously listen for connections
         int addrlen = sizeof(sockaddr);
         while (true) {
                 // accept the new peer
-                int newPeerFd = accept(centralNodeSocket, (struct sockaddr*)&sockaddr, (socklen_t*)&addrlen);
+                int newPeerFd = accept(bootstrapNodeSocket, (struct sockaddr*)&sockaddr, (socklen_t*)&addrlen);
                 if(newPeerFd < 0) {
                         std::cerr << "Failed to accept new connection" << std::endl;
                         continue;
                 }
 
-                // serialize then send all of the active peers to the new peer
+                // read the name of the newly connected client
+                // record the connected peer for future communcation
+                std::string peerName;
+                char buffer[1024];
+                int bytesRead = recv(newPeerFd, buffer, sizeof(buffer) - 1, 0);
+                if (bytesRead > 0) {
+                        buffer[bytesRead] = '\0';
+                        peerName = buffer;
+                        std::cout << "connected peer " << peerName << std::endl;
+                }
+
+                // new peer will connect
+                // send a peer update message to the new peer
+                // send the new peer all of the current Connected peers
+
+                // offidically register the new peer
+                bootstrapNode.registerPeer(peerName);
+                // send a peer update message to all of the connected peers
+                // send all of the connected peers the new peer
 
         }
 }
