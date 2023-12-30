@@ -28,6 +28,9 @@ int main(int argc, char* argv[]) {
         // start the server in a new thread
         std::thread serverThread(&Peer::startServer, &myPeer, port);
 
+        // Send message to bootstrap server
+        myPeer.contactBootstrap();
+
         // get commands and process 
         std::string userInput;
         while (true) {

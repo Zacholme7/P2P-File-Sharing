@@ -23,7 +23,6 @@ namespace peer {
         */
         Peer::~Peer() {};
 
-
         /*
         * This function is to start our peer. This will allow other peers to connect to this peer and 
         * send commands that need to be processed by the application
@@ -81,6 +80,12 @@ namespace peer {
                         buffer[bytesRead] = '\0'; // Null-terminate the received data
                         std::string command(buffer);
                         //  the various commands that a peer has to process from another peer
+
+                        if (command == "bootstrapSnapshot") {
+                        } else if (command == "fileList") {
+                        } else if (command == "peerWithFile") {
+
+                        }
                 }
                 close(clientSocket);
         }
@@ -119,25 +124,25 @@ namespace peer {
         }
 
         /*
+        * This fuction sends a new peer message to the bootstrap server. This is the peers first 
+        * contact with the bootstrap and it will send a snapshot of all the current peers back to
+        * be processed
+        */
+        void Peer::contactBootstrap() {
+                std::string payload = "new_peer";
+                sendMessage("bootstrap", payload);
+        }
+
+        /*
         * This funciton is for sending a message to another peer in the P2P network. If we have not
         * previoulsy connected to this peer and it is a new one, we will make sure to connect to and 
         * register it before sending our message
         */
-        void Peer::sendMessage(const std::string &peerServerName, const std::string &command) {
-                // look if we are conncected to the peerServer that we want to connect to
-                // if we are not, conenct to the peerServer
-                // once we are connected, send the command
-                /*
-                auto it = connectedPeers.find(peerServerName);
-                if (command == "bootstrap") {
+        void Peer::sendMessage(const std::string &peerServerName, const std::string &payload) {
+                auto it = connectedServers.find(peerServerName);
+                if(it !=connectedServers.end())  {
+                        send(it->second, payload.c_str(), payload.size(), 0);
                 }
-                auto it = connectedPeers.find(serverName);
-                if (it != connectedPeers.end()) {
-                        send(it->second, message.c_str(), message.size(), 0);
-                } else {
-                        logger.log("Server not found: " + serverName, LogLevel::Error);
-                }
-                */
         }
 
         /*
@@ -145,6 +150,15 @@ namespace peer {
         * redirect it to the proper execution functions in the peer
         */
         void Peer::processCommand(std::string& command) {
-                return;
+                std::string payload;
+                if (command == "listfiles") {
+                        sendMessage("bootstrap", "listFiles");
+                } else if (command == "getfile") {
+                        std::string filename;
+                        std::cout << "What file would you to download: ";
+                        getline(std::cin, filename);
+                        payload = "getfile;filename";
+                        sendMessage("bootstrap", payload);
+                }
         }
 }
