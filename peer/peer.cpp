@@ -16,12 +16,21 @@ namespace peer {
         * Constructor
         */
         Peer::Peer(std::string&name )
-                : name(name), serverSocket(-1) {};
+                : name(name), serverSocket(-1) {
+                        // establish connection to bootstrap server
+                        std::string bootstrap = "bootstrap";
+                        connectToPeerServer(50000, "127.0.0.1", bootstrap);
+                };
 
         /*
         * Destructor
         */
-        Peer::~Peer() {};
+        Peer::~Peer() {
+                // send close message to all connected servers
+                for(auto server: connectedServers) {
+                        sendMessage(server->first, "respClientClosed");
+                }
+        };
 
         /*
         * This function is to start our peer. This will allow other peers to connect to this peer and 
@@ -81,10 +90,23 @@ namespace peer {
                         std::string command(buffer);
                         //  the various commands that a peer has to process from another peer
 
-                        if (command == "bootstrapSnapshot") {
-                        } else if (command == "fileList") {
-                        } else if (command == "peerWithFile") {
-
+                        // what are we needing to do here?
+                        if (command == "respNewPeer") {
+                        // respNewPeer
+                        // will get a map with all of the clients, need to decode this using json something
+                        // then need to call connect to peer server for each 
+                        } else if (command == "respListFiles") {
+                        // respFileList
+                        // can decode
+                        } else if (command == "respPeerWithFile") {
+                                // decode the message
+                                // send the request to the peers server with sendMessage
+                        } else if (command == "respDownloadedFile") {
+                                // this is the info for the file that we requested
+                                // need to decode it and save it
+                        } else if (command == "respClientClosed") {
+                                // get the client tha was close and remove it from our connections
+                                // need to remove the server from our possible connections
                         }
                 }
                 close(clientSocket);
@@ -116,10 +138,7 @@ namespace peer {
                         return;
                 }
 
-                // send a new_client_connection message to the server so that this client can be saved
-                send(peerClientFd, this->name.c_str(), this->name.length(), 0);
-
-                // register this connection in our peer
+                // register the new connection
                 connectedServers[peerServerName] = peerClientFd;
         }
 
@@ -131,6 +150,7 @@ namespace peer {
         void Peer::contactBootstrap() {
                 std::string payload = "new_peer";
                 sendMessage("bootstrap", payload);
+
         }
 
         /*
