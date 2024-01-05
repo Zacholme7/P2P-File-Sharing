@@ -22,8 +22,9 @@ int main(int argc, char* argv[]) {
         int port = std::stoi(argv[1]); // port that we want to the server to use
         std::string peerName = std::string(argv[2]);
 
+
         // construct the peer
-        Peer myPeer(peerName);
+        Peer myPeer(peerName, port);
 
         // start the server in a new thread
         std::thread serverThread(&Peer::startServer, &myPeer, port);

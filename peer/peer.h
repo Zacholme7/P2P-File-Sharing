@@ -10,7 +10,7 @@
 namespace peer {
         class Peer {
         public:
-                Peer(std::string& name);
+                Peer(std::string& name, int port);
                 ~Peer();
 
                 // Starts the server
@@ -34,7 +34,7 @@ namespace peer {
                 void requestAllFiles();
 
                 // Processes the message from the 
-                void connectToPeerServer(int port, const std::string &ip, std::string &peerServerName);
+                void connectToPeerServer(int port, const std::string &ip, const std::string &peerServerName);
 
                 // Internal helper function to send messages to another peer or bootstrap server
                 void sendMessage(const std::string &serverName, const std::string &payload);
@@ -47,6 +47,7 @@ namespace peer {
                 std::unordered_map<std::string, int> connectedServers;
                 std::vector<std::thread> clientThreads;
                 std::mutex mutex;
+                int port;
         };
 }
 

@@ -13,12 +13,17 @@ class BootstrapServer {
                 std::vector<std::thread> peerThreads;
         private:
                 // commands
-                void processNewPeerCommand();
+                void processNewPeerCommand(std::string &name, std::string &value, int port, int peerFd);
                 void processListFilesCommand();
                 void processFileSearchCommand();
                 void processPeerClose();
 
-                std::unordered_map<std::string, int> activePeers;
+                // networking 
+                void connectToPeerServer(int port, const std::string &ip, std::string &peerServerName);
+                void sendMessage(const std::string &peerServerName, const std::string &payload);
+
+                std::unordered_map<std::string, std::unordered_map<std::string, std::string>> snapshot;
+                std::unordered_map<std::string, int> connectedPeers;
                 std::unordered_map<std::string, std::vector<std::string>> fileMap;
 };
 

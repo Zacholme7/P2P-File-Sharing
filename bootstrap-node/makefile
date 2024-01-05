@@ -8,10 +8,10 @@ CXXFLAGS = -Wall -Wextra -std=c++17
 TARGET = bootstrap
 
 # Define source files
-SOURCES = main.cpp bootstrapNode.cpp
+SOURCES = main.cpp bootstrapServer.cpp
 
 # Define header files
-HEADERS = bootstrapNode.h
+HEADERS = bootstrapServer.h
 
 # Define object files
 OBJECTS = $(SOURCES:.cpp=.o)
@@ -21,7 +21,7 @@ all: $(TARGET)
 
 # Link the object files into the executable
 $(TARGET): $(OBJECTS)
-	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJECTS)
+	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJECTS) -lpthread 
 
 # Compile the source files into object files
 %.o: %.cpp $(HEADERS)

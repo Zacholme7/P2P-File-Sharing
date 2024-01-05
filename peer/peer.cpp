@@ -1,6 +1,5 @@
 #include "peer.h"
 #include "logger.h"
-#include "util.h"
 #include <sys/socket.h>
 #include <thread>
 #include <netinet/in.h>
@@ -8,6 +7,9 @@
 #include <string>
 #include <iostream>
 #include <unistd.h>
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
 
 extern Logger logger;
 
@@ -15,8 +17,8 @@ namespace peer {
         /*
         * Constructor
         */
-        Peer::Peer(std::string&name )
-                : name(name), serverSocket(-1) {
+        Peer::Peer(std::string&name, int port)
+                : name(name), port(port), serverSocket(-1) {
                         // establish connection to bootstrap server
                         std::string bootstrap = "bootstrap";
                         connectToPeerServer(50000, "127.0.0.1", bootstrap);
@@ -28,7 +30,7 @@ namespace peer {
         Peer::~Peer() {
                 // send close message to all connected servers
                 for(auto server: connectedServers) {
-                        sendMessage(server->first, "respClientClosed");
+                        sendMessage(server.first, "respClientClosed");
                 }
         };
 
@@ -82,31 +84,35 @@ namespace peer {
         void Peer::listenToClient(int clientSocket) {
                 char buffer[1024];
                 while (true) {
+                        std::cout << "waiting for message in peer" << std::endl;
                         int bytesRead = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
                         if (bytesRead <= 0) {
                                 break;
                         }
                         buffer[bytesRead] = '\0'; // Null-terminate the received data
                         std::string command(buffer);
-                        //  the various commands that a peer has to process from another peer
+
+                        json j = json::parse(command);
+                        std::cout << j.dump() << std::endl;
 
                         // what are we needing to do here?
-                        if (command == "respNewPeer") {
-                        // respNewPeer
-                        // will get a map with all of the clients, need to decode this using json something
-                        // then need to call connect to peer server for each 
-                        } else if (command == "respListFiles") {
-                        // respFileList
-                        // can decode
-                        } else if (command == "respPeerWithFile") {
-                                // decode the message
-                                // send the request to the peers server with sendMessage
-                        } else if (command == "respDownloadedFile") {
-                                // this is the info for the file that we requested
-                                // need to decode it and save it
-                        } else if (command == "respClientClosed") {
-                                // get the client tha was close and remove it from our connections
-                                // need to remove the server from our possible connections
+                        if (j["command"] == "respSnapshot") {
+                            // get all of the active peers
+                            json peers = j["data"];
+
+
+                            // go through all of the peers and connect to them
+                            for (auto &[peerName, peerDetails] : peers.items()) {
+                                std::string ip = peerDetails["ip"];
+                                std::string port = peerDetails["port"];
+
+
+
+                                connectToPeerServer(std::stoi(port), ip, peerName);
+                            }
+
+                        } else if (command == "respNotify") {
+                            // 
                         }
                 }
                 close(clientSocket);
@@ -117,7 +123,7 @@ namespace peer {
         * After connecting, we save the connection to our internal state so that if we would like to contact
         * this peer in the future, we do not have to reconnect to the server
         */
-        void Peer::connectToPeerServer(int port, const std::string &ip, std::string &peerServerName) {
+        void Peer::connectToPeerServer(int port, const std::string &ip, const std::string &peerServerName) {
                 // create the socket
                 int peerClientFd = socket(AF_INET, SOCK_STREAM, 0);
                 if (peerClientFd < 0) {
@@ -138,6 +144,7 @@ namespace peer {
                         return;
                 }
 
+                std::cout << name << " connected to " << peerServerName << std::endl;
                 // register the new connection
                 connectedServers[peerServerName] = peerClientFd;
         }
@@ -148,9 +155,19 @@ namespace peer {
         * be processed
         */
         void Peer::contactBootstrap() {
-                std::string payload = "new_peer";
-                sendMessage("bootstrap", payload);
+            // construct the boostrap message
+            json requestJson;
+            requestJson["command"] = "reqNewPeer"; 
 
+            json data;
+            data["name"] = name; 
+            data["port"] = port;
+            data["ip"] = "127.0.0.1";
+
+            requestJson["data"] = data;
+            std::string requestMessage = requestJson.dump();
+
+            sendMessage("bootstrap", requestMessage);
         }
 
         /*

@@ -16,15 +16,12 @@ HEADERS = peer.h
 # Define object files
 OBJECTS = $(SOURCES:.cpp=.o)
 
-#LDFLAGS = -ljson-c
-
 # The first rule is the one executed when no parameters are fed to the Makefile
 all: $(TARGET)
 
 # Link the object files into the executable
 $(TARGET): $(OBJECTS)
-	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJECTS) 
-#$(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJECTS)  -pthread
 
 # Compile the source files into object files
 %.o: %.cpp $(HEADERS)
