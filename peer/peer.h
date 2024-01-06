@@ -10,7 +10,7 @@
 namespace peer {
         class Peer {
         public:
-                Peer(std::string& name, int port);
+                Peer(std::string& name, int port, std::vector<std::string> &files);
                 ~Peer();
 
                 // Starts the server
@@ -48,6 +48,7 @@ namespace peer {
                 std::vector<std::thread> clientThreads;
                 std::mutex mutex;
                 int port;
+                std::vector<std::string> files;
         };
 }
 

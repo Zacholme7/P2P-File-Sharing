@@ -1,6 +1,6 @@
 #include "bootstrapServer.h"
 #include <unistd.h>
-#include <nlohmann/json.hpp>
+#include "../json.hpp"
 #include <iostream>
 #include <sys/socket.h>
 #include <thread>
@@ -26,6 +26,7 @@ void BootstrapServer::listenToPeer(int peerFd) {
                 buffer[bytesRead] = '\0';
                 std::string requestMessage(buffer);
                 json requestJson = json::parse(requestMessage);
+                std::cout << requestJson.dump() << std::endl;
 
                 // process the commands
                 if (requestJson["command"] == "reqNewPeer") {
@@ -34,8 +35,19 @@ void BootstrapServer::listenToPeer(int peerFd) {
                     std::string name = data["name"];
                     std::string ip = data["ip"];
                     int port = data["port"];
-                    std::cout << "Got a new connection: " << name << " " << ip << ":" << port << std::endl;
+                    std::vector<std::string> files = data["files"];
+
+                    // insert the files into our filelist
+                    for(const auto &fileName: files) {
+                        filePeerList.push_back(std::make_tuple(fileName, name));
+                    }
+                    // process the new peer
                     processNewPeerCommand(name, ip, port, peerFd);
+                } else if (requestJson["command"] == "reqListFiles") {
+
+                        std::string name = requestJson["name"];
+                        // process the command to list all of the available files
+                        processListFilesCommand(name);
                 }
         }
 
@@ -61,9 +73,9 @@ void BootstrapServer::processNewPeerCommand(std::string &name, std::string &ip, 
     // send all other peers the new peer
     json responseNotifyJson;
     responseNotifyJson["command"] = "respNotify";
-    responseNotifyJson["data"]["name"] = name;
-    responseNotifyJson["data"]["ip"] = ip;
-    responseNotifyJson["data"]["port"] = port;
+    responseNotifyJson["name"] = name;
+    responseNotifyJson["ip"] = ip;
+    responseNotifyJson["port"] = port;
     std::string responseNotifyMessage = responseNotifyJson.dump();
     for(auto &pair: connectedPeers) {
         if(pair.first != name) {
@@ -74,6 +86,27 @@ void BootstrapServer::processNewPeerCommand(std::string &name, std::string &ip, 
     // add the new peer to our active peers 
     snapshot[name]["ip"] = ip;
     snapshot[name]["port"] = std::to_string(port);
+
+}
+
+/*
+* This function is used to process the "listFiles" command from a Peer. It will
+* go through all of our active files and send back a list of them to the peer. 
+*/
+void BootstrapServer::processListFilesCommand(std::string &name) {
+        std::vector<std::string> peerNames;
+        for (const auto& item : filePeerList) {
+                peerNames.push_back(std::get<0>(item));
+        }
+
+        // construct the response
+        json responseListFilesJson;
+        responseListFilesJson["command"] = "respListFiles";
+        responseListFilesJson["data"] = peerNames;
+        std::string responseListFilesMessage = responseListFilesJson.dump();
+
+        // connect to the peer and send the response back
+        sendMessage(name, responseListFilesMessage);
 }
 
 /*
@@ -115,11 +148,6 @@ void BootstrapServer::connectToPeerServer(int port, const std::string &ip, std::
         connectedPeers[peerServerName] = peerClientFd;
 }
 
-void BootstrapServer::processListFilesCommand() {
-        // get a message from the peer that says reqFileList
-        // loop through the filelist and create a vector that contains all of the files
-        // transform it into json or some sort and send it back
-}
 
 void BootstrapServer::processFileSearchCommand() {
         // get a message from the peer that says reqPeerWithFilej
