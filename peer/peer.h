@@ -33,11 +33,16 @@ namespace peer {
                 void processAllFiles();
                 void requestAllFiles();
 
+                // Handles file transfer
+                void sendFile(const std::string &filename, int socket);
+                void recieveFile(const std::string &outputFilename, int sockfd);
+
                 // Processes the message from the 
                 void connectToPeerServer(int port, const std::string &ip, const std::string &peerServerName);
 
                 // Internal helper function to send messages to another peer or bootstrap server
                 void sendMessage(const std::string &serverName, const std::string &payload);
+                void listenForIncommingConnection(int serverSocket) ;
 
                 // Will continuoulsy listen form messages from a connected peer 
                 void listenToClient(int clientSocket);

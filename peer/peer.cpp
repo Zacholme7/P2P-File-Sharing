@@ -1,12 +1,14 @@
 #include "peer.h"
 #include "logger.h"
 #include <sys/socket.h>
+#include <fcntl.h>
 #include <thread>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <string>
 #include <iostream>
 #include <unistd.h>
+#include <fstream>
 #include "../json.hpp"
 
 using json = nlohmann::json;
@@ -42,8 +44,7 @@ namespace peer {
         * send commands that need to be processed by the application
         */
         void Peer::startServer(int port) {
-                // create the socket
-
+                // create the server socket
                 logger.log("Starting the server...", LogLevel::Debug);
                 serverSocket = socket(AF_INET, SOCK_STREAM, 0);
                 if (serverSocket == -1) {
@@ -66,22 +67,45 @@ namespace peer {
                 // begin listening on this socket
                 listen(serverSocket, 10);
                 logger.log("Successfully started the server", LogLevel::Debug);
+                listenForIncommingConnection(serverSocket);
+        }
 
-                // start a new thread to listen to messages that are sent to this socket?
-                int addrlen = sizeof(sockaddr);
-                while (true && isRunning) {
-                        // accept the new connection
-                        logger.log("Server waiting for a new connection...", LogLevel::Debug);
-                        int newPeerClientFd = accept(serverSocket, (struct sockaddr*)&sockaddr, (socklen_t*)&addrlen);
-                        if (newPeerClientFd < 0) {
-                                logger.log("Failed to accept connection", LogLevel::Error);
-                                continue;
+
+        /*
+        * This function will continuously wait for other peers to connect to this peer. Once 
+        * there is a connection, it will get the socket descriptor for the connection and start
+        * a new thread to listen for incomming messages
+        */
+        void Peer::listenForIncommingConnection(int serverSocket) {
+                while (true and isRunning) {
+                        fd_set readFds;
+                        FD_ZERO(&readFds);
+                        FD_SET(serverSocket, &readFds);
+
+                        struct timeval tv;
+                        tv.tv_sec = 10;
+                        tv.tv_usec = 0;
+
+                        int activity = select(serverSocket + 1, &readFds, NULL, NULL, &tv);
+
+                        if (activity < 0) {
+                                perror("Select");
+                                break;
+                        } else if (activity == 0) {
+                                printf("timeout occurred no incoming connections");
+                        } else {
+                                if (FD_ISSET(serverSocket, &readFds)) {
+                                        int clientSocket = accept(serverSocket, NULL, NULL);
+                                        if(clientSocket < 0) {
+                                                perror("accept");
+                                                continue;
+                                        }
+
+                                        // listen to this connection in its own thread
+                                        std::thread newPeerClientThread(&Peer::listenToClient, this, clientSocket);
+                                        clientThreads.push_back(std::move(newPeerClientThread));
+                                }
                         }
-                        logger.log("Server got a new connection, starting new thread...", LogLevel::Debug);
-
-                        // listen to this connection in its own thread
-                        std::thread newPeerClientThread(&Peer::listenToClient, this, newPeerClientFd);
-                        clientThreads.push_back(std::move(newPeerClientThread));
                 }
         }
 
@@ -90,49 +114,76 @@ namespace peer {
         * When it recieves a message, it will decode it and then redirect it to the correct processing function
         */
         void Peer::listenToClient(int clientSocket) {
+                // set a timeout for recv
+                struct timeval tv;
+                tv.tv_sec = 5;  // 5 seconds timeout
+                tv.tv_usec = 0; // 0 microseconds
+                if (setsockopt(clientSocket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv)) < 0) {
+                        perror("setsockopt");
+                }
+
+                // continuously read information from the socket
                 char buffer[1024];
-                while (true) {
+                while (true && isRunning) {
                         std::string logString = "Listening for a message on socket " + std::to_string(clientSocket);
                         logger.log(logString, LogLevel::Debug);
+
+                        // read the messsage from the socket
                         int bytesRead = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
-                        if (bytesRead <= 0) {
-                                break;
-                        }
-                        buffer[bytesRead] = '\0'; // Null-terminate the received data
-                        std::string command(buffer);
+                        if (bytesRead > 0) {
+                                buffer[bytesRead] = '\0'; 
+                                // parse the message into a command
+                                std::string command(buffer);
+                                json commandJson = json::parse(command);
 
-                        json j = json::parse(command);
-                        logString = "Got a message on socket " + std::to_string(clientSocket) + ": " + j.dump();
-                        logger.log(logString, LogLevel::Debug);
-
-                        // what are we needing to do here?
-                        if (j["command"] == "respSnapshot") {
-                            // get all of the active peers
-                            json peers = j["data"];
-
-                            // go through all of the peers and connect to them
-                            for (auto &[peerName, peerDetails] : peers.items()) {
-                                std::string ip = peerDetails["ip"];
-                                std::string port = peerDetails["port"];
-                                connectToPeerServer(std::stoi(port), ip, peerName);
-                            }
-
-                        } else if (command == "respNotify") {
-                                // parse the peer data
-                                std::string peerName = j["name"];
-                                std::string ip = j["ip"];
-                                std::string port = j["port"];
-                                
-                                // connect to the peer
-                                connectToPeerServer(std::stoi(port), ip, peerName);
-                        } else if (command == "respListFiles") {
-                                for(auto &fileName : j["data"].items()) {
-                                        std::cout << fileName << " ";
+                                if (commandJson["command"] == "respSnapshot") {
+                                        processSnapshot(commandJson);
+                                } else if (commandJson["command"] == "respNotify") {
+                                        processNotify(commandJson);
+                                } else if (commandJson["command"] == "respListFiles") {
+                                        processListFiles(commandJson);
+                                } else if (commandJson["command"] == "respPeerWithFile") {
+                                        processPeerWithFile(commandJson);
+                                } else if (commandJson["command"] == "reqFile") {
+                                        processRequestFile(commandJson);
+                                } else if (commandJson["command"] == "recvFile") {
+                                        processRecieveFile(commandJson);
                                 }
-                                std::cout << std::endl;
+                        } else if (bytesRead == 0) {
+                                // conneciton closed, need to process this and remove 
                         }
                 }
                 close(clientSocket);
+        }
+
+        void Peer::sendFile(const std::string &filename, int socket) {
+                std::ifstream file(filename, std::ios::binary);
+                if (!file.is_open()) {
+                        std::cerr << "Failed to open file for reading" << '\n';
+                        return;
+                }
+
+                char buffer[1024];
+                while(!file.eof()) {
+                        file.read(buffer, sizeof(buffer));
+                        int bytesRead = file.gcount();
+                        send(socket, buffer, bytesRead, 0);
+                }
+        }
+
+        void Peer::recieveFile(const std::string &outputFilename, int sockfd) {
+                std::ofstream file(outputFilename, std::ios::binary);
+                if(!file.is_open()) {
+                        std::cerr << "Failed to open file for writing" << '\n';
+                }
+
+                char buffer[1024];
+                int bytes_received;
+
+                while((bytes_received = recv(sockfd, buffer, sizeof(buffer) - 1, 0)) > 0) {
+                        file.write(buffer, bytes_received);
+                }
+                file.close();
         }
 
         /*
@@ -224,4 +275,76 @@ namespace peer {
                         sendMessage("bootstrap", payload);
                 }
         }
-}
+
+
+
+        // Functions for message processing
+        void processSnapshot(json command) {
+                json peers = command["data"];
+
+                // go through all of the peers and connect to them
+                for (auto &[peerName, peerDetails] : peers.items()) {
+                        std::string ip = peerDetails["ip"];
+                        std::string port = peerDetails["port"];
+                        connectToPeerServer(std::stoi(port), ip, peerName);
+                }
+        }
+
+        void processNotify(json command) {
+                //processNotify()
+                // parse the peer data
+                std::string peerName = command["name"];
+                std::string ip = command["ip"];
+                std::string port = command["port"];
+                
+                // connect to the peer
+                connectToPeerServer(std::stoi(port), ip, peerName);
+
+        }
+
+        void processListfiles(json command) {
+                for(auto &fileName : command["data"].items()) {
+                        std::cout << fileName << " ";
+                }
+                std::cout << std::endl;
+
+        }
+
+        void processPeerWithFile(json command) {
+
+        }
+};
+// processPeerWithFile
+
+      //processSnapshot(commandJson);
+ //processNotify()
+ // processListFiles()
+ // processPeerWithFile
+
+                /*
+
+
+                // start a new thread to listen to messages that are sent to this socket?
+                int addrlen = sizeof(sockaddr);
+                while (true && isRunning) {
+                        // accept the new connection
+                        logger.log("Server waiting for a new connection...", LogLevel::Debug);
+                        int newPeerClientFd = accept(serverSocket, (struct sockaddr*)&sockaddr, (socklen_t*)&addrlen);
+                        if (newPeerClientFd < 0) {
+                                logger.log("Failed to accept connection", LogLevel::Error);
+                                continue;
+                        }
+                        logger.log("Server got a new connection, starting new thread...", LogLevel::Debug);
+
+                        // set a timeout on the socket
+                        struct timeval tv;
+                        tv.tv_sec = 5;  // Set the timeout to 5 seconds
+                        tv.tv_usec = 0;  // Not using microseconds
+
+                        if (setsockopt(newPeerClientFd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv) < 0) {
+                                perror("setsockopt");
+                                continue;
+                        }
+
+                }
+                */

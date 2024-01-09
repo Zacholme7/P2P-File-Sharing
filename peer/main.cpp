@@ -62,7 +62,7 @@ int main(int argc, char* argv[]) {
         std::cout << "out of the loop" << std::endl;
         isRunning = false;
 
-        //serverThread.join();
+        serverThread.join();
 }
 
 
