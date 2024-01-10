@@ -8,10 +8,10 @@ CXXFLAGS = -Wall -Wextra -std=c++17
 TARGET = myapp
 
 # Define source files
-SOURCES = main.cpp peer.cpp
+SOURCES = main.cpp peer.cpp util.cpp
 
 # Define header files
-HEADERS = peer.h
+HEADERS = peer.h util.h
 
 # Define object files
 OBJECTS = $(SOURCES:.cpp=.o)
