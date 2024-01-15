@@ -7,17 +7,25 @@
 #include <unordered_map>
 #include <thread>
 #include <tuple>
+#include "../json.hpp"
+using json = nlohmann::json;
 
 class BootstrapServer {
         public:
-                void listenToPeer(int peerFd);
-                std::vector<std::thread> peerThreads;
+                void startServer(std::string &port);
         private:
-                // commands
-                void processNewPeerCommand(std::string &name, std::string &value, int port, int peerFd);
-                void processListFilesCommand(std::string &name);
-                void processFileSearchCommand();
-                void processPeerClose();
+                void listenForConnections();
+
+                void *get_in_addr(struct sockaddr *sa);
+                void add_to_pfds(int newfd, std::vector<struct pollfd> &pfds);
+                void del_from_pfds(size_t index, std::vector<struct pollfd> &pfds);
+
+                void processSnapshotRequest(json requestJson);
+                void processListFilesRequest(json requestJson);
+                void processPeerWithFileRequest(json requestJson);
+
+
+
 
                 // networking 
                 void connectToPeerServer(int port, const std::string &ip, std::string &peerServerName);
@@ -27,9 +35,8 @@ class BootstrapServer {
                 std::unordered_map<std::string, std::unordered_map<std::string, std::string>> snapshot;
                 std::unordered_map<std::string, int> connectedPeers;
                 std::vector<std::tuple<std::string, std::string>> filePeerList;
-
-
-
+                int serverSocket;
+                std::vector<struct pollfd> pfds;
 };
 
 #endif
