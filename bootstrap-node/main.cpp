@@ -4,7 +4,6 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
-#define PORT 50000
 
 int main() {
         BootstrapServer bootstrapServer;

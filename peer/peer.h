@@ -7,18 +7,21 @@
 #include <unordered_map>
 #include <vector>
 #include <poll.h>
+#include "../json.hpp"
+
+using json = nlohmann::json;
 
 namespace peer {
 class Peer {
 public:
-  Peer(std::string &name, std::string port, std::vector<std::string> &files);
+  Peer(std::string &name, int, std::vector<std::string> &files);
   ~Peer();
 
   // Starts the server
-  void startServer(std::string &port);
+  void startServer(int port);
 
   // Contacts the bootstrap server to get initial snapshot
-  void contactBootstrap();
+  void requestSnapshot();
 
   // Processes a command from the cli
   void processCommand(std::string &command);
@@ -29,6 +32,10 @@ private:
   // peers
   void processBootstrapSnapshot();
 
+  void processSnapshot(json responseJson);
+  void processNotify(json responseJson);
+  void processListFiles(json responseJson);
+
   // Processes a file request
   void processFileRequest();
   void requestFileRequest();
@@ -37,13 +44,15 @@ private:
   void processAllFiles();
   void requestAllFiles();
 
+  void handleSocketClose(int port);
+
   // Handles file transfer
   void sendFile(const std::string &filename, int socket);
   void recieveFile(const std::string &outputFilename, int sockfd);
 
   // Processes the message from the
-  void connectToPeerServer(int port, const std::string &ip,
-                           const std::string &peerServerName);
+  void connectToPeerServer(std::string &name, int port);
+              
 
   // Internal helper function to send messages to another peer or bootstrap
   // server
@@ -56,9 +65,12 @@ private:
   std::string name;
   int serverSocket;
   std::unordered_map<std::string, int> connectedServers;
+  std::unordered_map<std::string, int> nameToFd;
+  std::unordered_map<int, std::string> fdToName;
+  
   std::vector<std::thread> clientThreads;
   std::mutex mutex;
-  std::string port;
+  int port;
   std::vector<std::string> files;
   std::vector<struct pollfd> pfds;
 };

@@ -7,7 +7,9 @@
 #include <unordered_map>
 #include <thread>
 #include <tuple>
+#include <sys/poll.h>
 #include "../json.hpp"
+
 using json = nlohmann::json;
 
 class BootstrapServer {
@@ -21,20 +23,24 @@ class BootstrapServer {
                 void del_from_pfds(size_t index, std::vector<struct pollfd> &pfds);
 
                 void processSnapshotRequest(json requestJson);
-                void processListFilesRequest(json requestJson);
-                void processPeerWithFileRequest(json requestJson);
+                void processListFilesRequest(json requestJson, int peerSocket);
+                void processPeerWithFileRequest(json requestJson, int peerSocket);
+
+                void handleSocketClose(int fd);
 
 
 
 
                 // networking 
-                void connectToPeerServer(int port, const std::string &ip, std::string &peerServerName);
+                void connectToPeerServer(std::string &peerServerName, int port);
+
                 void sendMessage(const std::string &peerServerName, const std::string &payload);
 
                 // data
-                std::unordered_map<std::string, std::unordered_map<std::string, std::string>> snapshot;
-                std::unordered_map<std::string, int> connectedPeers;
-                std::vector<std::tuple<std::string, std::string>> filePeerList;
+                std::unordered_map<std::string, int> nameToPort;
+                std::unordered_map<std::string, int> nameToFd;
+                std::unordered_map<int, std::string> fdToName;
+                std::unordered_map<std::string, std::vector<std::string>> nameToFiles;
                 int serverSocket;
                 std::vector<struct pollfd> pfds;
 };
