@@ -23,8 +23,7 @@ namespace peer {
  * Constructor
  */
 Peer::Peer(std::string &name, int port, std::vector<std::string> &files)
-    : name(name), port(port), serverSocket(-1),
-      files(files) {};
+    : name(name), port(port), serverSocket(-1), files(files){};
 
 /*
  * Destructor
@@ -89,11 +88,11 @@ void Peer::startServer(int port) {
 
   pfds.push_back({serverSocket, POLLIN, 0});
   std::cout << "Server started. Listening for connections...\n";
-  
+
   // contact the boostrap
   std::string bootstrap = "bootstrap";
   connectToPeerServer(bootstrap, 50000);
-  requestSnapshot(); 
+  requestSnapshot();
 
   listenForConnections();
 }
@@ -162,17 +161,12 @@ void Peer::listenForConnections() {
               processNotify(commandJson);
             } else if (commandJson["command"] == "responseListFiles") {
               processListFiles(commandJson);
-            }
-            /*
-
-            } else if (commandJson["command"] == "respPeerWithFile") {
+            } else if (commandJson["command"] == "responsePeerWithFile") {
               processPeerWithFile(commandJson);
-            } else if (commandJson["command"] == "reqFile") {
-              processRequestFile(commandJson);
-            } else if (commandJson["command"] == "recvFile") {
-              processRecieveFile(commandJson);
+            } else if (commandJson["command"] == "requestFileContent") {
+            } else {
+              std::cout << "command not recognized" << std::endl;
             }
-*/
           }
         }
       }
@@ -188,7 +182,8 @@ void Peer::listenForConnections() {
  */
 void Peer::connectToPeerServer(std::string &peerServerName, int port) {
   std::string ip = "127.0.0.1";
-  std::cout << "connecting to " << peerServerName << " on " << port << std::endl;
+  std::cout << "connecting to " << peerServerName << " on " << port
+            << std::endl;
 
   // create the socket
   int peerClientFd = socket(AF_INET, SOCK_STREAM, 0);
@@ -203,7 +198,8 @@ void Peer::connectToPeerServer(std::string &peerServerName, int port) {
   inet_pton(AF_INET, ip.c_str(), &sockaddr.sin_addr);
 
   // connect to the peer server specified by ip:port
-  if (connect(peerClientFd, (struct sockaddr *)&sockaddr, sizeof(sockaddr)) < 0) {
+  if (connect(peerClientFd, (struct sockaddr *)&sockaddr, sizeof(sockaddr)) <
+      0) {
     close(peerClientFd);
     return;
   }
@@ -218,7 +214,8 @@ void Peer::connectToPeerServer(std::string &peerServerName, int port) {
  * we have not previoulsy connected to this peer and it is a new one, we will
  * make sure to connect to and register it before sending our message
  */
-void Peer::sendMessage(const std::string &peerServerName, const std::string &payload) {
+void Peer::sendMessage(const std::string &peerServerName,
+                       const std::string &payload) {
   auto it = nameToFd.find(peerServerName);
   if (it != nameToFd.end()) {
     send(it->second, payload.c_str(), payload.size(), 0);
@@ -226,8 +223,8 @@ void Peer::sendMessage(const std::string &peerServerName, const std::string &pay
 }
 
 /**********************
-* Functions to communcate with other peers
-**********************/
+ * Functions to communcate with other peers
+ **********************/
 
 /*
  * This fuction sends a new peer message to the bootstrap server. This is the
@@ -252,14 +249,15 @@ void Peer::requestSnapshot() {
 }
 
 /**********************
-* Functions to process requests from other peers
-**********************/
+ * Functions to process requests from other peers
+ **********************/
 
 /*
-* This function will process a snapshot from the boostrap server. A peer will get a bootstreap
-* response upon first connecting to the network. This will contain information about other
-* peers in the network for this peer to connet to
-*/
+ * This function will process a snapshot from the boostrap server. A peer will
+ * get a bootstreap response upon first connecting to the network. This will
+ * contain information about other peers in the network for this peer to connet
+ * to
+ */
 void Peer::processSnapshot(json responseJson) {
   std::cout << "in process" << std::endl;
   json peers = responseJson["data"];
@@ -272,10 +270,10 @@ void Peer::processSnapshot(json responseJson) {
 }
 
 /*
-* This function will process a notify message from the bootstrap server.
-* This means that a new peer has connected to the network and we want to 
-* connect to it
-*/
+ * This function will process a notify message from the bootstrap server.
+ * This means that a new peer has connected to the network and we want to
+ * connect to it
+ */
 void Peer::processNotify(json responseJson) {
   std::cout << "in process notify" << std::endl;
   //  parse the peer data
@@ -287,43 +285,68 @@ void Peer::processNotify(json responseJson) {
 }
 
 /*
-* This function will process a message from the bootstrap sever
-* which contains a list of the files the network has access to
-*/
+ * This function will process a message from the bootstrap sever
+ * which contains a list of the files the network has access to
+ */
 void Peer::processListFiles(json command) {
-  for (auto &fileName : command["data"].items()) {
+  std::cout << "procesing list files" << std::endl;
+  for (auto &[fileIdx, fileName] : command["files"].items()) {
     std::cout << fileName << " ";
   }
   std::cout << std::endl;
 }
 
 /*
-* This function will remove the peer from our list of active peers
-*/
+ * This function will remove the peer from our list of active peers
+ */
 void Peer::handleSocketClose(int socketFd) {
   std::string peerName = fdToName[socketFd];
   fdToName.erase(socketFd);
   nameToFd.erase(peerName);
 }
 
-} // namespace peer
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /*
+ * This function will process commands from the cli and
+ * redirect it to the proper execution functions in the peer
+ */
+void Peer::processCommand(std::string &command) {
+  std::string payload;
+  if (command == "listFiles") {
+    std::cout << "list files command" << std::endl;
+    json requestJson;
+    requestJson["command"] = "requestListFiles";
+    requestJson["name"] = name;
+    std::string requestMessage = requestJson.dump();
+    sendMessage("bootstrap", requestMessage);
+  } else if (command == "getfile") {
+    std::string filename;
+    std::cout << "What file would you to download: ";
+    getline(std::cin, filename);
+    json requestJson;
+    requestJson["command"] = "requestPeerWithFile";
+    requestJson["name"] = name;
+    requestJson["file"] = filename;
+    std::string requestMessage = requestJson.dump();
+    sendMessage("bootstrap", payload);
+  }
+}
+
+
+void Peer::processPeerWithFile(json responseJson) {
+  std::string peer = responseJson["peer"];
+  std::string file = responseJson["file"];
+
+  json requestJson;
+  requestJson["command"] = "requestFileContent";
+  requestJson["name"] = "name";
+  requestJson["file"] = "file";
+  std::string requestMessage = requestJson.dump();
+  sendMessage(name, requestMessage);
+  // start listening for the file
+}
+
+
+
 void Peer::sendFile(const std::string &filename, int socket) {
   std::ifstream file(filename, std::ios::binary);
   if (!file.is_open()) {
@@ -356,28 +379,7 @@ void Peer::recieveFile(const std::string &outputFilename, int sockfd) {
 
 
 
-
- * This function will process commands from the cli and
- * redirect it to the proper execution functions in the peer
-void Peer::processCommand(std::string &command) {
-  std::string payload;
-  if (command == "listFiles") {
-    // construct the listFiles message
-    json requestJson;
-    requestJson["command"] = "reqListFiles";
-    requestJson["name"] = name;
-    std::string requestMessage = requestJson.dump();
-
-    // send the message to the bootstrap server
-    sendMessage("bootstrap", requestMessage);
-  } else if (command == "getfile") {
-    std::string filename;
-    std::cout << "What file would you to download: ";
-    getline(std::cin, filename);
-    payload = "getfile;filename";
-    sendMessage("bootstrap", payload);
-  }
-}
+} // namespace peer
 
 
-*/
+

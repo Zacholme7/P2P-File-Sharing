@@ -1,13 +1,13 @@
 #ifndef INCLUDED_PEER
 #define INCLUDED_PEER
 
+#include "../json.hpp"
 #include <mutex>
+#include <poll.h>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <vector>
-#include <poll.h>
-#include "../json.hpp"
 
 using json = nlohmann::json;
 
@@ -42,6 +42,8 @@ private:
 
   // Handles list file request
   void processAllFiles();
+  void processPeerWithFile(json responseJson);
+
   void requestAllFiles();
 
   void handleSocketClose(int port);
@@ -52,7 +54,6 @@ private:
 
   // Processes the message from the
   void connectToPeerServer(std::string &name, int port);
-              
 
   // Internal helper function to send messages to another peer or bootstrap
   // server
@@ -67,7 +68,7 @@ private:
   std::unordered_map<std::string, int> connectedServers;
   std::unordered_map<std::string, int> nameToFd;
   std::unordered_map<int, std::string> fdToName;
-  
+
   std::vector<std::thread> clientThreads;
   std::mutex mutex;
   int port;

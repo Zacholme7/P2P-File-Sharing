@@ -7,6 +7,9 @@
 #include <string>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <thread>
+#include <atomic>
+
 
 using namespace peer;
 namespace fs = std::filesystem;
@@ -23,7 +26,7 @@ int main(int argc, char *argv[]) {
                LogLevel::Error);
     return 1;
   }
-  //int port = std::stoi(argv[1]); // port that we want to the server to use
+  // int port = std::stoi(argv[1]); // port that we want to the server to use
   int port = std::stoi(argv[1]);
   std::string peerName = std::string(argv[2]);
 
@@ -36,8 +39,21 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  // construct the peer
+  // construct the peer and start it in a new thread
   Peer myPeer(peerName, port, fileNames);
-  myPeer.startServer(port);
+  std::thread serverThread(&Peer::startServer, &myPeer, port);
+
+  while (true) {
+    std::string command;
+    std::cout << "Enter a command: ";
+    std::getline(std::cin, command);
+    std::cout << "command: " << std::endl;
+
+    if (command == "exit") {
+      break;
+    }
+    myPeer.processCommand(command);
+
+  }
   return 0;
 }
