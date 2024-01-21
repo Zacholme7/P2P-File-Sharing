@@ -10,7 +10,10 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include "logger.h"
+
 using json = nlohmann::json;
+extern Logger logger;
 
 /*
  * This function is to start our peer. This will allow other peers to connect
@@ -44,8 +47,8 @@ void BootstrapServer::startServer(std::string &port) {
     // set the socket options
     if (setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) ==
         -1) {
-      throw std::system_error(errno, std::generic_category(),
-                              "setsockopt failed");
+      logger.log("Set socket options failed", LogLevel::Error);
+      return ;
     }
 
     // bind the server to the port
@@ -57,16 +60,16 @@ void BootstrapServer::startServer(std::string &port) {
   }
 
   if (p == nullptr) {
-    throw std::runtime_error("Failed to bind");
+    logger.log("Failed to bind", LogLevel::Debug);
   }
 
   // listen on the server socket
   if (listen(serverSocket, 10) == -1) {
-    throw std::system_error(errno, std::generic_category(), "listen failed");
+    logger.log("Failed to listen", LogLevel::Debug);
   }
 
   pfds.push_back({serverSocket, POLLIN, 0});
-  std::cout << "Server started. Listening for connections...\n";
+  logger.log("Server started. Listening for connections...", LogLevel::Info);
   listenForConnections();
 }
 
@@ -79,12 +82,12 @@ void BootstrapServer::listenForConnections() {
 
   // keep listening for events
   while (true) {
-    std::cout << "Waiting for an event...\n";
+    logger.log("Waiting for an event...", LogLevel::Info);
 
     // see how many events we got
     int poll_count = poll(pfds.data(), pfds.size(), -1);
     if (poll_count == -1) {
-      throw std::system_error(errno, std::generic_category(), "poll failed");
+      logger.log("Error while polling", LogLevel::Error);
     }
 
     // loop through all the tracked fds and look which got an event
@@ -98,13 +101,13 @@ void BootstrapServer::listenForConnections() {
           int newfd =
               accept(serverSocket, (struct sockaddr *)&remoteaddr, &addrlen);
           if (newfd == -1) {
-            std::cerr << "Error in accept: " << strerror(errno) << '\n';
+            logger.log("Error accepting connection", LogLevel::Error);
             continue;
           }
 
           // track the fd
           add_to_pfds(newfd, pfds);
-          std::cout << "New connection on socket " << newfd << '\n';
+          logger.log("Got a new connection on socket " + std::to_string(newfd), LogLevel::Debug);
         } else {
           // recieve the data
           char buf[2048];
@@ -114,10 +117,10 @@ void BootstrapServer::listenForConnections() {
           if (nbytes <= 0) {
             if (nbytes == 0) {
               // message to close the socket
-              std::cout << "Socket " << sender_fd << " closed\n";
+              logger.log("Peer closed", LogLevel::Info);
               handleSocketClose(sender_fd);
             } else {
-              std::cerr << "recv error: " << strerror(errno) << '\n';
+              logger.log("Error recieveing information", LogLevel::Warning);
             }
 
             close(pfds[i].fd);
@@ -127,7 +130,7 @@ void BootstrapServer::listenForConnections() {
             // get the request from the peer
 
             std::string request(buf, nbytes);
-            std::cout << "Got request: " << request << '\n';
+            logger.log("Received data " + request, LogLevel::Info);
             json requestJson = json::parse(request);
 
             if (requestJson["command"] == "requestSnapshot") {
@@ -152,11 +155,14 @@ void BootstrapServer::listenForConnections() {
  */
 void BootstrapServer::connectToPeerServer(std::string &peerServerName,
                                           int port) {
+  logger.log("In connectToPeerServer", LogLevel::Debug);
   std::string ip = "127.0.0.1";
+  logger.log("Connecing to " + peerServerName + " on " + std::to_string(port), LogLevel::Info); 
 
   // create the socket
   int peerClientFd = socket(AF_INET, SOCK_STREAM, 0);
   if (peerClientFd < 0) {
+    logger.log("Unable to create the socket", LogLevel::Warning);
     return;
   }
 
@@ -169,9 +175,11 @@ void BootstrapServer::connectToPeerServer(std::string &peerServerName,
   // connect to the peer server specified by ip:port
   if (connect(peerClientFd, (struct sockaddr *)&sockaddr, sizeof(sockaddr)) <
       0) {
+    logger.log("Unable to connect to " + peerServerName + " on " + std::to_string(port), LogLevel::Warning);
     close(peerClientFd);
     return;
   }
+  logger.log("Connection successful", LogLevel::Debug);
 
   // register the new connection
   nameToFd[peerServerName] = peerClientFd;
@@ -185,10 +193,10 @@ void BootstrapServer::connectToPeerServer(std::string &peerServerName,
  */
 void BootstrapServer::sendMessage(const std::string &peerServerName,
                                   const std::string &payload) {
-  std::cout << "about to sendmessage: " << payload << std::endl;
+  logger.log("In sendMessage", LogLevel::Debug);
   auto it = nameToFd.find(peerServerName);
   if (it != nameToFd.end()) {
-    std::cout << "sending message: " << payload << std::endl;
+    logger.log("Sending message " + payload + " to " + peerServerName, LogLevel::Debug);
     send(it->second, payload.c_str(), payload.size(), 0);
   }
 }
@@ -200,6 +208,7 @@ void BootstrapServer::sendMessage(const std::string &peerServerName,
  * For them to conenct to each other
  */
 void BootstrapServer::processSnapshotRequest(json requestJson) {
+  logger.log("In processSnapshotRequest", LogLevel::Debug);
   std::string name = requestJson["name"];
   int port = requestJson["port"];
   std::vector<std::string> files = requestJson["files"];
@@ -236,7 +245,7 @@ void BootstrapServer::processSnapshotRequest(json requestJson) {
  * currently active peers
  */
 void BootstrapServer::processListFilesRequest(json requestJson) {
-  std::cout << "in proces list files " << std::endl;
+  logger.log("In processListFiles", LogLevel::Debug);
   std::string name = requestJson["name"];
   std::vector<std::string> files;
 
@@ -250,7 +259,6 @@ void BootstrapServer::processListFilesRequest(json requestJson) {
   responseListFilesJson["command"] = "responseListFiles";
   responseListFilesJson["files"] = files;
   std::string responseListFilesMessage = responseListFilesJson.dump();
-  std::cout << responseListFilesMessage << std::endl;
 
   // send hte message
   sendMessage(name, responseListFilesMessage);
@@ -263,6 +271,7 @@ void BootstrapServer::processListFilesRequest(json requestJson) {
  * that peer directly for file transfer
  */
 void BootstrapServer::processPeerWithFileRequest(json requestJson) {
+  logger.log("In peerWithFileRequest", LogLevel::Debug);
   std::string peer = "None";
   bool found = false;
   std::string target = requestJson["file"];
@@ -325,6 +334,7 @@ void BootstrapServer::del_from_pfds(size_t index,
  */
 void BootstrapServer::handleSocketClose(int socketFd) {
   std::string peerName = fdToName[socketFd];
+  logger.log("Peer: " + peerName + " on " + std::to_string(socketFd) + " closed", LogLevel::Debug);
   fdToName.erase(socketFd);
   nameToFd.erase(peerName);
   nameToFiles.erase(peerName);

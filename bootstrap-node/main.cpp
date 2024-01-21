@@ -3,6 +3,9 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include "logger.h"
+
+Logger logger(LogLevel::Debug);
 
 int main() {
   BootstrapServer bootstrapServer;

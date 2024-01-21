@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <atomic>
 #include <filesystem>
+#include <iostream>
 #include <netinet/in.h>
 #include <string>
 #include <sys/socket.h>
@@ -10,13 +11,12 @@
 #include <thread>
 #include <atomic>
 
-
 using namespace peer;
 namespace fs = std::filesystem;
 
 std::atomic<bool> isRunning(true);
 
-Logger logger(LogLevel::Debug);
+Logger logger(LogLevel::None);
 
 int main(int argc, char *argv[]) {
   // parse the command line arguments
@@ -43,11 +43,16 @@ int main(int argc, char *argv[]) {
   Peer myPeer(peerName, port, fileNames);
   std::thread serverThread(&Peer::startServer, &myPeer, port);
 
+  std::cout << "Enter a command: " << std::endl;
   while (true) {
+    std::cout << "- ";
     std::string command;
-    std::cout << "Enter a command: ";
     std::getline(std::cin, command);
-    std::cout << "command: " << std::endl;
+
+    if (command == "help") {
+        std::cout << "listFiles: lists all of the files available on the network" << std::endl;
+        std::cout << "getFile: get a file from the network " << std::endl;
+    }
 
     if (command == "exit") {
       break;
