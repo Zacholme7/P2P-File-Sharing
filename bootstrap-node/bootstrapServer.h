@@ -17,12 +17,15 @@ public:
   void startServer(std::string &port);
 
 private:
+  // listen for a connection on the server
   void listenForConnections();
 
+  // handle file descriptors
   void *get_in_addr(struct sockaddr *sa);
   void add_to_pfds(int newfd, std::vector<struct pollfd> &pfds);
   void del_from_pfds(size_t index, std::vector<struct pollfd> &pfds);
 
+  // process incomming requests
   void processSnapshotRequest(json requestJson);
   void processListFilesRequest(json requestJson);
   void processPeerWithFileRequest(json requestJson);

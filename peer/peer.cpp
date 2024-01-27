@@ -2,9 +2,10 @@
 #include "../json.hpp"
 #include "logger.h"
 #include "util.h"
-#include <fstream>
 #include <arpa/inet.h>
+#include <atomic>
 #include <fcntl.h>
+#include <fstream>
 #include <iostream>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -24,12 +25,12 @@ namespace peer {
  * Constructor
  */
 Peer::Peer(std::string &name, int port, std::vector<std::string> &files)
-    : name(name), port(port), serverSocket(-1), files(files){};
+    : name(name), files(files), serverSocket(-1), port(port){};
 
 /*
  * Destructor
  */
-Peer::~Peer() {};
+Peer::~Peer(){};
 
 /*
  * This function is to start our peer. This will allow other peers to connect
@@ -100,12 +101,12 @@ void Peer::startServer(int port) {
  */
 void Peer::listenForActivity() {
   char buf[256];
-  char remoteIP[INET6_ADDRSTRLEN];
 
-  while (true) {
+  while (isRunning.load()) {
     logger.log("Waiting for an event...", LogLevel::Info);
 
-    int poll_count = poll(pfds.data(), pfds.size(), -1);
+    int timeout = 1000;
+    int poll_count = poll(pfds.data(), pfds.size(), timeout);
 
     if (poll_count == -1) {
       logger.log("Error while poling", LogLevel::Error);
@@ -126,7 +127,8 @@ void Peer::listenForActivity() {
           }
 
           add_to_pfds(newfd, pfds);
-          logger.log("Got a new connection on socket " + std::to_string(newfd), LogLevel::Debug);
+          logger.log("Got a new connection on socket " + std::to_string(newfd),
+                     LogLevel::Debug);
         } else {
           if (inFileTransferMode) {
             receiveFile(fileTransferOutputName, pfds[i].fd);
@@ -182,7 +184,8 @@ void Peer::listenForActivity() {
 void Peer::connectToPeerServer(std::string &peerServerName, int port) {
   logger.log("In connectToPeerServer", LogLevel::Debug);
   std::string ip = "127.0.0.1";
-  logger.log("Connecing to " + peerServerName + " on " + std::to_string(port), LogLevel::Info);
+  logger.log("Connecing to " + peerServerName + " on " + std::to_string(port),
+             LogLevel::Info);
 
   // create the socket
   int peerClientFd = socket(AF_INET, SOCK_STREAM, 0);
@@ -200,7 +203,9 @@ void Peer::connectToPeerServer(std::string &peerServerName, int port) {
   // connect to the peer server specified by ip:port
   if (connect(peerClientFd, (struct sockaddr *)&sockaddr, sizeof(sockaddr)) <
       0) {
-    logger.log("Unable to connect to " + peerServerName + " on " + std::to_string(port), LogLevel::Warning);
+    logger.log("Unable to connect to " + peerServerName + " on " +
+                   std::to_string(port),
+               LogLevel::Warning);
     close(peerClientFd);
     return;
   }
@@ -218,10 +223,12 @@ void Peer::connectToPeerServer(std::string &peerServerName, int port) {
  */
 void Peer::sendMessage(const std::string &peerServerName,
                        const std::string &payload) {
-  logger.log("In sendMessage with " + peerServerName + ":" + payload, LogLevel::Debug);
+  logger.log("In sendMessage with " + peerServerName + ":" + payload,
+             LogLevel::Debug);
   auto it = nameToFd.find(peerServerName);
   if (it != nameToFd.end()) {
-    logger.log("Sending message " + payload + " to " + peerServerName, LogLevel::Debug);
+    logger.log("Sending message " + payload + " to " + peerServerName,
+               LogLevel::Debug);
     send(it->second, payload.c_str(), payload.size(), 0);
   }
 }
@@ -236,7 +243,7 @@ void Peer::sendMessage(const std::string &peerServerName,
  * current peers back to be processed
  */
 void Peer::requestSnapshot() {
-   logger.log("In requestSnapshot", LogLevel::Debug);
+  logger.log("In requestSnapshot", LogLevel::Debug);
   // construct the boostrap message
   json requestJson;
   requestJson["command"] = "requestSnapshot";
@@ -305,7 +312,9 @@ void Peer::processListFiles(json command) {
  */
 void Peer::handleSocketClose(int socketFd) {
   std::string peerName = fdToName[socketFd];
-  logger.log("Peer: " + peerName + " on " + std::to_string(socketFd) + " closed", LogLevel::Debug);
+  logger.log("Peer: " + peerName + " on " + std::to_string(socketFd) +
+                 " closed",
+             LogLevel::Debug);
   fdToName.erase(socketFd);
   nameToFd.erase(peerName);
 }
@@ -339,11 +348,11 @@ void Peer::processCommand(std::string &command) {
 }
 
 /*
-* This function is used to process a response from the bootstrap
-* that will tell us which peer has the file that we are requesting.
-* We then want to send a request to that peer signaling the initiation
-* of file transfer. This is the first step of file tarnsfer
-*/
+ * This function is used to process a response from the bootstrap
+ * that will tell us which peer has the file that we are requesting.
+ * We then want to send a request to that peer signaling the initiation
+ * of file transfer. This is the first step of file tarnsfer
+ */
 void Peer::processPeerWithFile(json responseJson) {
   logger.log("In processPeerWithFile", LogLevel::Debug);
   std::string peer = responseJson["peer"];
@@ -361,58 +370,60 @@ void Peer::processPeerWithFile(json responseJson) {
 }
 
 /*
-* This function is used to send a file over to another peer. Once a 
-* peer gets a request for the file content, it will extract the peer and the 
-* filename and then send it over
-*/
+ * This function is used to send a file over to another peer. Once a
+ * peer gets a request for the file content, it will extract the peer and the
+ * filename and then send it over
+ */
 void Peer::processRequestFile(json responseJson) {
-    logger.log("in processRequestFile", LogLevel::Debug);
-    // send over the file
-    std::string name = responseJson["name"];
-    std::string requestedFile = responseJson["file"];
+  logger.log("in processRequestFile", LogLevel::Debug);
+  // send over the file
+  std::string name = responseJson["name"];
+  std::string requestedFile = responseJson["file"];
 
-    sendFile(requestedFile, name);
+  sendFile(requestedFile, name);
 }
 
 /*
-* This function is for sending a file to another peer. It will open and the file 
-* and continuously send over the file untill it is all sent
-*/
+ * This function is for sending a file to another peer. It will open and the
+ * file and continuously send over the file untill it is all sent
+ */
 void Peer::sendFile(const std::string &filename, std::string &name) {
 
-   std::string filePath = "files/" + filename;
-    logger.log("In sendFile", LogLevel::Debug);
-    logger.log("Sending " + filename + " to " + name, LogLevel::Debug);
+  std::string filePath = "files/" + filename;
+  logger.log("In sendFile", LogLevel::Debug);
+  logger.log("Sending " + filename + " to " + name, LogLevel::Debug);
 
-    std::ifstream file(filePath, std::ios::binary);
-    if (!file.is_open()) {
-        logger.log("Unable to open file", LogLevel::Error);
-        return;
-    }
+  std::ifstream file(filePath, std::ios::binary);
+  if (!file.is_open()) {
+    logger.log("Unable to open file", LogLevel::Error);
+    return;
+  }
 
-    char buffer[1024];
-    while (!file.eof()) {
-        file.read(buffer, sizeof(buffer));
-        int bytesRead = file.gcount();
-        logger.log("Sending " + std::string(buffer) + " to " + name + " on " +  std::to_string(nameToFd[name]), LogLevel::Debug);
-        send(nameToFd[name], buffer, bytesRead, 0);
-    }
+  char buffer[1024];
+  while (!file.eof()) {
+    file.read(buffer, sizeof(buffer));
+    int bytesRead = file.gcount();
+    logger.log("Sending " + std::string(buffer) + " to " + name + " on " +
+                   std::to_string(nameToFd[name]),
+               LogLevel::Debug);
+    send(nameToFd[name], buffer, bytesRead, 0);
+  }
 
-    // Send an end-of-file signal
-    const std::string eofSignal = "<EOF>";
-    send(nameToFd[name], eofSignal.c_str(), eofSignal.size(), 0);
+  // Send an end-of-file signal
+  const std::string eofSignal = "<EOF>";
+  send(nameToFd[name], eofSignal.c_str(), eofSignal.size(), 0);
 
-    logger.log("Finished sending file", LogLevel::Debug);
+  logger.log("Finished sending file", LogLevel::Debug);
 }
 
 /*
-* This function is for receiving a file from another peer. It will be called when 
-* we are in file transfer mode and will keep reading bytes from the network and
-* writing it to the intended file
-*/
+ * This function is for receiving a file from another peer. It will be called
+ * when we are in file transfer mode and will keep reading bytes from the
+ * network and writing it to the intended file
+ */
 void Peer::receiveFile(const std::string &outputFilename, int sockfd) {
   logger.log("In recvFile", LogLevel::Debug);
-  logger.log("Recieving file " + outputFilename, LogLevel::Debug); 
+  logger.log("Recieving file " + outputFilename, LogLevel::Debug);
   std::ofstream file(outputFilename, std::ios::binary);
   if (!file.is_open()) {
     logger.log("Failed to open file for writing", LogLevel::Error);
@@ -421,26 +432,30 @@ void Peer::receiveFile(const std::string &outputFilename, int sockfd) {
 
   std::string buffer;
   const std::string eofSignal = "<EOF>";
-  char tempBuffer[1025]; // Slightly larger buffer to accommodate null terminator
+  char
+      tempBuffer[1025]; // Slightly larger buffer to accommodate null terminator
 
   while (true) {
-      int bytes_received = recv(sockfd, tempBuffer, sizeof(tempBuffer) - 1, 0);
-      if (bytes_received <= 0) break; // Check for end of transmission or errors
-      logger.log("Received " + std::to_string(bytes_received) + " bytes", LogLevel::Debug);
+    int bytes_received = recv(sockfd, tempBuffer, sizeof(tempBuffer) - 1, 0);
+    if (bytes_received <= 0)
+      break; // Check for end of transmission or errors
+    logger.log("Received " + std::to_string(bytes_received) + " bytes",
+               LogLevel::Debug);
 
-      tempBuffer[bytes_received] = '\0'; // Null-terminate the string
-      buffer.append(tempBuffer, bytes_received);
+    tempBuffer[bytes_received] = '\0'; // Null-terminate the string
+    buffer.append(tempBuffer, bytes_received);
 
-      // Check if the buffer ends with the EOF signal
-      if (buffer.size() >= eofSignal.size() && buffer.substr(buffer.size() - eofSignal.size()) == eofSignal) {
-          // Remove EOF signal from buffer and break
-          buffer.erase(buffer.size() - eofSignal.size());
-          break;
-      }
+    // Check if the buffer ends with the EOF signal
+    if (buffer.size() >= eofSignal.size() &&
+        buffer.substr(buffer.size() - eofSignal.size()) == eofSignal) {
+      // Remove EOF signal from buffer and break
+      buffer.erase(buffer.size() - eofSignal.size());
+      break;
+    }
   }
 
   if (!buffer.empty()) {
-      file.write(buffer.c_str(), buffer.size());
+    file.write(buffer.c_str(), buffer.size());
   }
 
   file.close();

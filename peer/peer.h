@@ -49,11 +49,10 @@ private:
 
   // Internal helper function to send messages to another peer or bootstrap
   void sendMessage(const std::string &serverName, const std::string &payload);
- 
+
   // Client information
   std::string name;
   std::vector<std::string> files;
-
 
   // Server information
   int serverSocket;

@@ -1,8 +1,8 @@
 #include "bootstrapServer.h"
 #include "../json.hpp"
+#include "logger.h"
 #include <arpa/inet.h>
 #include <fcntl.h>
-#include <iostream>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <poll.h>
@@ -10,7 +10,6 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include "logger.h"
 
 using json = nlohmann::json;
 extern Logger logger;
@@ -48,7 +47,7 @@ void BootstrapServer::startServer(std::string &port) {
     if (setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) ==
         -1) {
       logger.log("Set socket options failed", LogLevel::Error);
-      return ;
+      return;
     }
 
     // bind the server to the port
@@ -78,8 +77,6 @@ void BootstrapServer::startServer(std::string &port) {
  * them
  */
 void BootstrapServer::listenForConnections() {
-  char remoteIP[INET6_ADDRSTRLEN];
-
   // keep listening for events
   while (true) {
     logger.log("Waiting for an event...", LogLevel::Info);
@@ -107,7 +104,8 @@ void BootstrapServer::listenForConnections() {
 
           // track the fd
           add_to_pfds(newfd, pfds);
-          logger.log("Got a new connection on socket " + std::to_string(newfd), LogLevel::Debug);
+          logger.log("Got a new connection on socket " + std::to_string(newfd),
+                     LogLevel::Debug);
         } else {
           // recieve the data
           char buf[2048];
@@ -157,7 +155,8 @@ void BootstrapServer::connectToPeerServer(std::string &peerServerName,
                                           int port) {
   logger.log("In connectToPeerServer", LogLevel::Debug);
   std::string ip = "127.0.0.1";
-  logger.log("Connecing to " + peerServerName + " on " + std::to_string(port), LogLevel::Info); 
+  logger.log("Connecing to " + peerServerName + " on " + std::to_string(port),
+             LogLevel::Info);
 
   // create the socket
   int peerClientFd = socket(AF_INET, SOCK_STREAM, 0);
@@ -175,7 +174,9 @@ void BootstrapServer::connectToPeerServer(std::string &peerServerName,
   // connect to the peer server specified by ip:port
   if (connect(peerClientFd, (struct sockaddr *)&sockaddr, sizeof(sockaddr)) <
       0) {
-    logger.log("Unable to connect to " + peerServerName + " on " + std::to_string(port), LogLevel::Warning);
+    logger.log("Unable to connect to " + peerServerName + " on " +
+                   std::to_string(port),
+               LogLevel::Warning);
     close(peerClientFd);
     return;
   }
@@ -196,7 +197,8 @@ void BootstrapServer::sendMessage(const std::string &peerServerName,
   logger.log("In sendMessage", LogLevel::Debug);
   auto it = nameToFd.find(peerServerName);
   if (it != nameToFd.end()) {
-    logger.log("Sending message " + payload + " to " + peerServerName, LogLevel::Debug);
+    logger.log("Sending message " + payload + " to " + peerServerName,
+               LogLevel::Debug);
     send(it->second, payload.c_str(), payload.size(), 0);
   }
 }
@@ -273,7 +275,6 @@ void BootstrapServer::processListFilesRequest(json requestJson) {
 void BootstrapServer::processPeerWithFileRequest(json requestJson) {
   logger.log("In peerWithFileRequest", LogLevel::Debug);
   std::string peer = "None";
-  bool found = false;
   std::string target = requestJson["file"];
 
   // get the name of the peer that has the file
@@ -334,7 +335,8 @@ void BootstrapServer::del_from_pfds(size_t index,
  */
 void BootstrapServer::handleSocketClose(int socketFd) {
   std::string peerName = fdToName[socketFd];
-  logger.log("Peer: " + peerName + " on " + std::to_string(socketFd) + " closed", LogLevel::Debug);
+  logger.log("Peer on " + std::to_string(socketFd) + " closed",
+             LogLevel::Debug);
   fdToName.erase(socketFd);
   nameToFd.erase(peerName);
   nameToFiles.erase(peerName);

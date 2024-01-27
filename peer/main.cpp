@@ -7,9 +7,8 @@
 #include <netinet/in.h>
 #include <string>
 #include <sys/socket.h>
-#include <unistd.h>
 #include <thread>
-#include <atomic>
+#include <unistd.h>
 
 using namespace peer;
 namespace fs = std::filesystem;
@@ -50,15 +49,21 @@ int main(int argc, char *argv[]) {
     std::getline(std::cin, command);
 
     if (command == "help") {
-        std::cout << "listFiles: lists all of the files available on the network" << std::endl;
-        std::cout << "getFile: get a file from the network " << std::endl;
+      std::cout << "listFiles: lists all of the files available on the network"
+                << std::endl;
+      std::cout << "getFile: get a file from the network " << std::endl;
     }
 
     if (command == "exit") {
+      isRunning = false;
       break;
     }
     myPeer.processCommand(command);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
 
+  if (serverThread.joinable()) {
+    serverThread.join();
   }
   return 0;
 }
